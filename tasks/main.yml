@@ -1,0 +1,138 @@
+---
+
+- set_fact:
+    general_config_change: false
+
+- name: Sysctl features enable
+  sysctl:
+    name: "{{ item }}"
+    value: 1
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv4.conf.default.rp_filter
+    - net.ipv4.conf.all.rp_filter
+
+- name: Install packages
+  apt:
+    state: present
+    name:
+      - openvpn
+      - openssl
+#      - openvpn-auth-ldap
+
+- name: Enable forwarding for tunnels (In)
+  iptables:
+    chain: FORWARD
+    in_interface: tun+
+    jump: ACCEPT
+
+- name: Enable forwarding for tunnels (Out)
+  iptables:
+    chain: FORWARD
+    out_interface: tun+
+    jump: ACCEPT
+
+- name: Save iptables configuration
+  include_tasks: "{{ playbook_dir }}/lib/firewall-save.yml"
+
+- name: Ensure OpenVPN log directory exists
+  file:
+    path: /var/log/openvpn
+    state: directory
+    owner: root
+    group: root
+    mode: 0750
+
+################
+# Certificate Authority
+
+- name: Certificate Authority
+  copy:
+    dest: "/etc/openvpn/ca.crt"
+    src: "{{ openvpn_ca_path }}"
+    remote_src: "{{ openvpn_ca_path_remote | default(false) }}"
+    owner: root
+    group: root
+    mode: 0644
+  register: ca_crt_config
+
+- set_fact:
+    general_config_change: true
+  when: ca_crt_config is defined and ca_crt_config.changed
+
+################
+# Server Certificate
+
+# Registry certificate configuration
+- name: Registry certificate configuration
+  include_tasks: cert_gen.yml
+  vars:
+    openssl_cert_name: "server"
+    openssl_ca_file: "/etc/openvpn/ca.crt"
+
+- name: Server Certificate
+  copy:
+    dest: "/etc/openvpn/server.crt"
+    src: "{{ playbook_dir }}/cert/{{ ansible_hostname }}/server.crt.yml"
+    decrypt: yes
+    owner: root
+    group: root
+    mode: 0600
+  register: server_crt_config
+
+- set_fact:
+    general_config_change: true
+  when: server_crt_config is defined and server_crt_config.changed
+
+################
+# Server Private Key
+
+- name: Server Private Key
+  copy:
+    dest: "/etc/openvpn/server.key"
+    src: "{{ playbook_dir }}/cert/{{ ansible_hostname }}/server.key.yml"
+    decrypt: yes
+    owner: root
+    group: root
+    mode: 0600
+  register: server_key_config
+
+- set_fact:
+    general_config_change: true
+  when: server_key_config is defined and server_key_config.changed
+
+- name: TLS Key Configuration
+  copy:
+    dest: "/etc/openvpn/tls.key"
+    src: "{{ playbook_dir }}/cert/{{ ansible_hostname }}/tls.key.yml"
+    decrypt: yes
+    owner: root
+    group: root
+    mode: 0600
+  register: tls_key_config
+
+- set_fact:
+    general_config_change: true
+  when: tls_key_config is defined and tls_key_config.changed
+
+- name: Diffie Helman Key Configuration
+  copy:
+    dest: "/etc/openvpn/dh.key"
+    src: "{{ playbook_dir }}/cert/{{ ansible_hostname }}/dh.key.yml"
+    decrypt: yes
+    owner: root
+    group: root
+    mode: 0600
+  register: dh_key_config
+
+- set_fact:
+    general_config_change: true
+  when: dh_key_config is defined and dh_key_config.changed
+
+- name: Configure VPN/s
+  include_tasks: vpn="{{ item }}"  "{{ role_path }}/tasks/per-vpn.yml"
+  with_dict: "{{ vpn }}"
+  when: vpn is defined
+    
+
+...

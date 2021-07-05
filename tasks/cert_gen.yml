@@ -1,0 +1,45 @@
+---
+
+- name: Default to no regenerate
+  set_fact:
+    openssl_cert_regenerate: false
+
+- name: "OpenSSL {{ openssl_cert_name }} configuration"
+  template:
+    dest: "{{ stackmon_certs_location }}/openssl_{{ openssl_cert_name }}_config"
+    src: "openssl_{{ openssl_cert_name }}_config.j2"
+    owner: root
+    group: root
+    mode: 0640
+  register: openssl_cert_config
+
+- name: "Verify {{ openssl_cert_name }} certificate"
+  shell: "openssl verify -CAfile {{ openssl_ca_file }} {{ stackmon_certs_location }}/{{ openssl_cert_name }}.crt"
+  failed_when: false
+  changed_when: false
+  register: openssl_verify_cert_run
+
+- name: Trigger regeneration of certs
+  set_fact:
+    openssl_cert_regenerate: true
+  when: openssl_verify_cert_run.rc != 0 or openssl_cert_config.changed
+
+- name: "Regenerate {{ openssl_cert_name }} CSR"
+  when: openssl_cert_regenerate
+  shell: >
+    openssl req -newkey rsa:2048 -nodes -sha256 -keyout {{ stackmon_certs_location }}/{{ openssl_cert_name }}.key -x509
+    -days {{ stackmon_certs_days }} -out {{ stackmon_certs_location }}/{{ openssl_cert_name }}.csr -config {{ stackmon_certs_location }}/openssl_{{ openssl_cert_name }}_config
+
+- name: "Regenerate {{ openssl_cert_name }} CRT"
+  when: openssl_cert_regenerate
+  shell: >
+    openssl x509 -in {{ stackmon_certs_location }}/{{ openssl_cert_name }}.csr -CA {{ openssl_ca_file }}
+    -CAkey {{ stackmon_certs_ca_key }} -CAcreateserial -out {{ stackmon_certs_location }}/{{ openssl_cert_name }}.crt
+    -extensions req_ext -extfile {{ stackmon_certs_location }}/openssl_{{ openssl_cert_name }}_config
+  register: openssl_cert_generate
+
+- name: "Verify {{ openssl_cert_name }} certificate"
+  shell: openssl verify -CAfile {{ openssl_ca_file }} {{ stackmon_certs_location }}/{{ openssl_cert_name }}.crt
+  changed_when: false
+
+...

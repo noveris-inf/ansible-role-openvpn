@@ -1,0 +1,135 @@
+---
+
+- set_fact:
+    vpnconfig: "{{ item.value }}"
+
+- set_fact:
+    vpnname: "{{ item.key }}"
+
+- set_fact:
+    service_state: "started"
+
+- set_fact:
+    service_state: "restarted"
+  when: general_config_change
+
+
+
+
+- name: VPN Configuration File
+  debug:
+    msg: "Configuring VPN for {{ vpnname }}"
+
+- when: vpnconfig["port"] is undefined
+  fail:
+    msg: "Port undefined on VPN configuration."
+
+################
+# Open VPN Configuration File
+
+- name: Write Configuration
+  template:
+    dest: "/etc/openvpn/{{ vpnname }}.conf"
+    src: vpn-config.j2
+    owner: root
+    group: root
+    mode: 0600
+  register: vpn_config
+
+- set_fact:
+    service_state: "restarted"
+  when: vpn_config is defined and vpn_config.changed
+
+- name: LDAP Configuration
+  when: vpnconfig["ldap"] is defined
+  template:
+    dest: "/etc/openvpn/{{ vpnname }}-ldap.conf"
+    src: auth-ldap.j2
+    owner: root
+    group: root
+    mode: 0600
+  register: ldap_config
+
+- set_fact:
+    service_state: "restarted"
+  when: ldap_config is defined and ldap_config.changed
+
+################
+# DH Key
+#
+#- name: Diffie Helman Key
+#  copy:
+#    dest: "/etc/openvpn/{{ vpnname }}-dh.key"
+#    src: "{{ playbook_dir }}/cert/{{ ansible_hostname }}/{{ vpnname }}-dh.key.yml"
+#    decrypt: yes
+#    owner: root
+#    group: root
+#    mode: 0600
+#  when: vpnconfig['psk'] is undefined or vpnconfig['psk'] == false
+#  register: dh_key_config
+#
+#- set_fact:
+#    service_state: "restarted"
+#  when: dh_key_config is defined and dh_key_config.changed
+#
+################
+# TLS Auth
+#
+#- name: TLS Auth Key
+#  copy:
+#    dest: "/etc/openvpn/{{ vpnname }}-tls.key"
+#    src: "{{ playbook_dir }}/cert/{{ ansible_hostname }}/{{ vpnname }}-tls.key.yml"
+#    decrypt: yes
+#    owner: root
+#    group: root
+#    mode: 0600
+#  when: vpnconfig['psk'] is undefined or vpnconfig['psk'] == false
+#  register: tls_key_config
+#
+#- set_fact:
+#    service_state: "restarted"
+#  when: tls_key_config is defined and tls_key_config.changed
+#
+################
+# Secret File
+
+- name: Secret File
+  copy:
+    dest: "/etc/openvpn/{{ vpnname }}-secret.key"
+    src: "{{ playbook_dir }}/cert/{{ ansible_hostname }}/{{ vpnname }}-secret.key"
+    decrypt: yes
+    owner: root
+    group: root
+    mode: 0600
+  when: vpnconfig['psk'] is defined and vpnconfig['psk']
+  register: secret_key_config
+
+- set_fact:
+    service_state: "restarted"
+  when: secret_key_config is defined and secret_key_config.changed
+
+################
+# Firewall Configuration
+
+- name: Add rule for VPN traffic
+  iptables:
+    chain: INPUT
+    jump: ACCEPT
+    protocol: udp
+    destination_port: "{{ vpnconfig.port }}"
+
+- name: Save firewall configuration
+  include_tasks: "{{ playbook_dir }}/lib/firewall-save.yml"
+
+################
+# Service Configuration
+
+- name: Enable service
+  service:
+    name: "openvpn@{{ vpnname }}"
+    enabled: yes
+    state: "{{ service_state }}"
+
+
+
+...

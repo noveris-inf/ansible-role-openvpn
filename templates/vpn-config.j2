@@ -1,0 +1,126 @@
+
+################
+# Connectivity
+
+port {{ vpnconfig['port'] }}
+proto udp
+dev tun
+topology subnet
+
+# Connection parameters
+keepalive 10 120
+comp-lzo
+
+tls-server
+
+multihome
+
+
+{% if 'ldap' in vpnconfig %}
+plugin /usr/lib/openvpn/openvpn-auth-ldap.so /etc/openvpn/{{ vpnname }}-ldap.conf
+{% endif %}
+
+
+################
+# Site VPN Specific
+
+# Remote routes
+{% if 'routes' in vpnconfig %}
+{% for route in vpnconfig['routes'] %}
+route {{ route }}
+{% endfor %}
+{% endif %}
+
+# Remote external endpoint
+{% if 'remote' in vpnconfig %}
+{% for item in vpnconfig['remote'] %}
+remote {{ item }}
+{% endfor %}
+{% endif %}
+
+# local and remote tunnel endpoints
+{% if 'tunnel_addrs' in vpnconfig %}
+ifconfig {{ vpnconfig['tunnel_addrs'] }}
+{% endif %}
+
+################
+# User VPN Specific
+
+# Client IP pool
+{% if 'server_pool' in vpnconfig %}
+server {{ vpnconfig['server_pool'] }}
+{% endif %}
+
+# Split routing - routes to send over link
+{% if 'client_routes' in vpnconfig %}
+{% for route in vpnconfig['client_routes'] %}
+push "route {{ route }}"
+{% endfor %}
+{% endif %}
+
+{% if 'maxclients' in vpnconfig %}
+max-clients {{ vpnconfig['maxclients'] }}
+{% endif %}
+
+{% if 'client_options' in vpnconfig %}
+{% for option in vpnconfig['client_options'] %}
+push "dhcp-option {{ option }}"
+{% endfor %}
+{% endif %}
+
+##
+# Certificates, Identification and Encryption
+
+# Certificates
+{% if 'secret' in vpnconfig %}
+
+secret {{ secret }}
+
+{% else %}
+
+ca ca.crt
+cert server.crt
+key server.key
+dh dh.key
+tls-auth tls.key 0
+
+{% endif %}
+
+# Ciphers
+{% if 'ciphers' in vpnconfig %}
+{% for cipher in vpnconfig['ciphers'] %}
+cipher {{ cipher }}
+{% endfor %}
+{% endif %}
+
+################
+# Security and priviege drop
+
+# Users and groups
+user nobody
+group nogroup
+
+# persist privileged options
+persist-key
+persist-tun
+
+auth SHA256
+
+################
+# Logging
+
+# Running status log
+status /var/log/openvpn/{{ vpnname }}-status.log
+
+# Log location
+log-append /var/log/openvpn/{{ vpnname }}.log
+
+# Logging verbosity
+verb 3
+
+{% if 'options' in vpnconfig %}
+{% for opt in vpnconfig['options'] %}
+{{ opt }}
+{% endfor %}
+{% endif %}
+
